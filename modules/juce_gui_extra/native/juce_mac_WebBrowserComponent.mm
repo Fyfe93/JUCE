@@ -276,6 +276,7 @@ struct WebViewDelegateClass  : public ObjCClass<NSObject>
         addMethod (@selector (webViewDidClose:),                                          webViewDidClose);
         addMethod (@selector (webView:createWebViewWithConfiguration:forNavigationAction:
                               windowFeatures:),                                           createWebView);
+        addMethod (@selector (userContentController:didReceiveScriptMessage:),            didReceiveScriptMessage);
 
        #if WKWEBVIEW_OPENPANEL_SUPPORTED
         if (@available (macOS 10.12, *))
@@ -324,6 +325,12 @@ private:
     static void didFailProvisionalNavigation (id self, SEL, WKWebView*, WKNavigation*, NSError* error)
     {
         displayError (getOwner (self), error);
+    }
+    
+    static void didReceiveScriptMessage (id self, SEL, WKUserContentController*, WKScriptMessage* message)
+    {
+        // TODO error handling/handle different types
+        getOwner (self)->scriptMessageReceived (nsDictionaryToVar (message.body));
     }
 
     static void webViewDidClose (id self, SEL, WKWebView*)
@@ -427,15 +434,26 @@ class WebViewImpl  : public WebViewBase
 public:
     WebViewImpl (WebBrowserComponent* owner)
     {
+        ignoreUnused (owner);
+        
+        static DownloadClickDetectorClass cls;
+        clickListener.reset ([cls.createInstance() init]);
+        DownloadClickDetectorClass::setOwner (clickListener.get(), owner);
+        
+        WKUserContentController *userContentController = [[WKUserContentController alloc] init];
+        [userContentController addScriptMessageHandler: clickListener.get() name: @"juce"];
+        
+        WKWebViewConfiguration* config = [[WKWebViewConfiguration alloc] init];
+        config.userContentController = userContentController;
+        #if JUCE_DEBUG
+            [config.preferences setValue:@YES forKey:@"developerExtrasEnabled"];
+        #endif
+        
         static WebViewKeyEquivalentResponder<WebView> webviewClass;
 
         webView.reset ([webviewClass.createInstance() initWithFrame: NSMakeRect (0, 0, 100.0f, 100.0f)
                                                           frameName: nsEmptyString()
                                                           groupName: nsEmptyString()]);
-
-        static DownloadClickDetectorClass cls;
-        clickListener.reset ([cls.createInstance() init]);
-        DownloadClickDetectorClass::setOwner (clickListener.get(), owner);
 
         [webView.get() setPolicyDelegate:    clickListener.get()];
         [webView.get() setFrameLoadDelegate: clickListener.get()];
@@ -512,18 +530,31 @@ class WKWebViewImpl  : public WebViewBase
 public:
     WKWebViewImpl (WebBrowserComponent* owner)
     {
+        ignoreUnused (owner);
+        
+        static WebViewDelegateClass cls;
+        webViewDelegate.reset ([cls.createInstance() init]);
+        WebViewDelegateClass::setOwner (webViewDelegate.get(), owner);
+        
+        WKUserContentController *userContentController = [[WKUserContentController alloc] init];
+        [userContentController addScriptMessageHandler: webViewDelegate.get() name: @"juce"];
+        
+        WKWebViewConfiguration* config = [[WKWebViewConfiguration alloc] init];
+        config.userContentController = userContentController;
+        #if JUCE_DEBUG
+            [config.preferences setValue:@YES forKey:@"developerExtrasEnabled"];
+        #endif
+        
         #if JUCE_MAC
          static WebViewKeyEquivalentResponder<WKWebView> webviewClass;
 
-         webView.reset ([webviewClass.createInstance() initWithFrame: NSMakeRect (0, 0, 100.0f, 100.0f)]);
+         webView.reset ([webviewClass.createInstance() initWithFrame: NSMakeRect (0, 0, 100.0f, 100.0f)
+                                                       configuration: config]);
         #else
-         webView.reset ([[WKWebView alloc] initWithFrame: CGRectMake (0, 0, 100.0f, 100.0f)]);
+         webView.reset ([[WKWebView alloc] initWithFrame: CGRectMake (0, 0, 100.0f, 100.0f)
+                                           configuration: config]);
         #endif
-
-         static WebViewDelegateClass cls;
-         webViewDelegate.reset ([cls.createInstance() init]);
-         WebViewDelegateClass::setOwner (webViewDelegate.get(), owner);
-
+        
          [webView.get() setNavigationDelegate: webViewDelegate.get()];
          [webView.get() setUIDelegate:         webViewDelegate.get()];
     }

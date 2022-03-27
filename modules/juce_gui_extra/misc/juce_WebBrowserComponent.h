@@ -125,6 +125,9 @@ public:
         new window yourself or just load the URL into the current window with goToURL().
      */
     virtual void newWindowAttemptingToLoad (const String& newURL)   { ignoreUnused (newURL); }
+    
+    /** TODO Docs */
+    virtual void scriptMessageReceived (const juce::var messageBody) { ignoreUnused (messageBody); }
 
     //==============================================================================
     /** @internal */
