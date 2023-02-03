@@ -23,6 +23,8 @@
   ==============================================================================
 */
 
+#include <atlstr.h>;
+
 namespace juce
 {
 
@@ -453,6 +455,20 @@ private:
     {
         if (webView != nullptr)
         {
+            webView->add_WebMessageReceived(Callback<ICoreWebView2WebMessageReceivedEventHandler>(
+                [this](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args)->HRESULT
+                {
+                    LPWSTR json;
+
+                    args->get_WebMessageAsJson(&json);
+
+                    std::string messageString = CW2A(json);
+                    auto message = JSON::parse(messageString);
+
+                    owner.scriptMessageReceived(message);
+
+                    return S_OK;
+                }).Get(), &webMessageReceivedToken);
             webView->add_NavigationStarting (Callback<ICoreWebView2NavigationStartingEventHandler> (
                 [this] (ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT
                 {
@@ -571,6 +587,9 @@ private:
     {
         if (webView != nullptr)
         {
+            if (webMessageReceivedToken.value != 0)
+                webView->remove_WebMessageReceived (webMessageReceivedToken);
+
             if (navigationStartingToken.value != 0)
                 webView->remove_NavigationStarting (navigationStartingToken);
 
@@ -740,7 +759,8 @@ private:
     ComSmartPtr<ICoreWebView2Controller> webViewController;
     ComSmartPtr<ICoreWebView2> webView;
 
-    EventRegistrationToken navigationStartingToken   { 0 },
+    EventRegistrationToken webMessageReceivedToken   { 0 },
+                           navigationStartingToken   { 0 },
                            newWindowRequestedToken   { 0 },
                            windowCloseRequestedToken { 0 },
                            navigationCompletedToken  { 0 },
